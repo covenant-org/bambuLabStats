@@ -3,3 +3,12 @@ vendor/
 .env
 .env-local
 .env-empty
+
+# Data directories
+raw_data/
+clean_data/
+
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
