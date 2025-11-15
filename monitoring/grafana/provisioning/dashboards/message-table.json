@@ -42,7 +42,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 12,
         "x": 0,
         "y": 0
       },
@@ -71,79 +71,14 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count_over_time(layer_num[$__range])",
+          "expr": "count_over_time(layer_num[30d])",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Total Messages Stored (Last $__range)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 0
-      },
-      "id": 2,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "layer_num",
-          "instant": false,
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Current Layer Number",
+      "title": "Total Messages Stored (Last 30 Days)",
       "type": "stat"
     },
     {
@@ -181,8 +116,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 12,
+        "x": 12,
         "y": 0
       },
       "id": 5,
@@ -210,14 +145,14 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count_over_time(layer_num[$__range]) * 15 / 60",
+          "expr": "count_over_time(layer_num[30d]) * 15 / 60",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Total Monitoring Duration",
+      "title": "Total Monitoring Duration (Last 30 Days)",
       "type": "stat"
     },
     {
@@ -284,14 +219,14 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "count_over_time(gcode_state{state=\"RUNNING\"}[$__range]) * 15 / 60",
+          "expr": "count_over_time(gcode_state{state=\"RUNNING\"}[30d]) * 15 / 60",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Time in RUNNING State",
+      "title": "Time in RUNNING State (Last 30 Days)",
       "type": "stat"
     },
     {
@@ -362,107 +297,15 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "scalar(count_over_time(gcode_state{state=\"RUNNING\"}[$__range])) * 100 / scalar(count_over_time(layer_num[$__range]))",
+          "expr": "scalar(count_over_time(gcode_state{state=\"RUNNING\"}[30d])) * 100 / scalar(count_over_time(layer_num[30d]))",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Printer Utilization %",
+      "title": "Printer Utilization % (Last 30 Days)",
       "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 14
-      },
-      "id": 3,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "layer_num",
-          "instant": false,
-          "legendFormat": "layer_num",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Layer Number Over Time (Verify Data Flow)",
-      "type": "timeseries"
     },
     {
       "datasource": {
@@ -556,10 +399,10 @@
         ]
       },
       "gridPos": {
-        "h": 16,
+        "h": 18,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 14
       },
       "id": 4,
       "options": {
@@ -798,13 +641,16 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-7d",
     "to": "now"
   },
-  "timepicker": {},
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"],
+    "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d", "90d", "365d"]
+  },
   "timezone": "browser",
   "title": "BambuLabs Message Table",
   "uid": "bambulabs-message-table",
-  "version": 8,
+  "version": 10,
   "weekStart": ""
 }
