@@ -1,10 +1,11 @@
 package main
 
-/* BambuLabs H2S Prometheus Exporter
+/* BambuLabs Slim Exporter - Clean Data Only
  *
- * Original By Aetrius Tyler B and Matt Beckett
- *
+ * Modified to export only the 13 clean data fields
+ * Original by Aetrius Tyler B and Matt Beckett
  * Modified by Scott Baker (https://www.smbaker.com/)
+ * Slimmed down for covenant-org/bambuLabStats
  */
 
 import (
@@ -40,29 +41,83 @@ var broker string
 var mqtt_topic string
 var mqtt_debug bool
 
+// Stage ID mappings
+var CURRENT_STAGE_IDS = map[int]string{
+	0:   "printing",
+	1:   "auto_bed_leveling",
+	2:   "heatbed_preheating",
+	3:   "sweeping_xy_mech_mode",
+	4:   "changing_filament",
+	5:   "m400_pause",
+	6:   "paused_filament_runout",
+	7:   "heating_hotend",
+	8:   "calibrating_extrusion",
+	9:   "scanning_bed_surface",
+	10:  "inspecting_first_layer",
+	11:  "identifying_build_plate_type",
+	12:  "calibrating_micro_lidar",
+	13:  "homing_toolhead",
+	14:  "cleaning_nozzle_tip",
+	15:  "checking_extruder_temperature",
+	16:  "paused_user",
+	17:  "paused_front_cover_falling",
+	18:  "calibrating_micro_lidar",
+	19:  "calibrating_extrusion_flow",
+	20:  "paused_nozzle_temperature_malfunction",
+	21:  "paused_heat_bed_temperature_malfunction",
+	22:  "filament_unloading",
+	23:  "paused_skipped_step",
+	24:  "filament_loading",
+	25:  "calibrating_motor_noise",
+	26:  "paused_ams_lost",
+	27:  "paused_low_fan_speed_heat_break",
+	28:  "paused_chamber_temperature_control_error",
+	29:  "cooling_chamber",
+	30:  "paused_user_gcode",
+	31:  "motor_noise_showoff",
+	32:  "paused_nozzle_filament_covered_detected",
+	33:  "paused_cutter_error",
+	34:  "paused_first_layer_error",
+	35:  "paused_nozzle_clog",
+	36:  "check_absolute_accuracy_before_calibration",
+	37:  "absolute_accuracy_calibration",
+	38:  "check_absolute_accuracy_after_calibration",
+	39:  "calibrate_nozzle_offset",
+	40:  "bed_level_high_temperature",
+	41:  "check_quick_release",
+	42:  "check_door_and_cover",
+	43:  "laser_calibration",
+	44:  "check_plaform",
+	45:  "check_birdeye_camera_position",
+	46:  "calibrate_birdeye_camera",
+	47:  "bed_level_phase_1",
+	48:  "bed_level_phase_2",
+	49:  "heating_chamber",
+	50:  "heated_bedcooling",
+	51:  "print_calibration_lines",
+	-1:  "idle",
+	255: "idle",
+}
+
+// Speed profile mappings
+var SPEED_PROFILE = map[int]string{
+	1: "silent",
+	2: "standard",
+	3: "sport",
+	4: "ludicrous",
+}
+
 type bambulabsCollector struct {
-	amsHumidityMetric        *prometheus.Desc
-	amsTempMetric            *prometheus.Desc
-	amsBedTempMetric         *prometheus.Desc
-	amsColorMetric           *prometheus.Desc //Custom color metric with multiple labels
-	layerNumberMetric        *prometheus.Desc
-	printErrorMetric         *prometheus.Desc
-	wifiSignalMetric         *prometheus.Desc
-	bigFan1SpeedMetric       *prometheus.Desc
-	bigFan2SpeedMetric       *prometheus.Desc
-	chamberTemperMetric      *prometheus.Desc
-	coolingFanSpeedMetric    *prometheus.Desc
-	failReasonMetric         *prometheus.Desc
-	fanGearMetric            *prometheus.Desc
-	mcPercentMetric          *prometheus.Desc
-	mcPrintErrorCodeMetric   *prometheus.Desc
-	mcPrintStageMetric       *prometheus.Desc
-	mcPrintSubStageMetric    *prometheus.Desc
-	mcRemainingTimeMetric    *prometheus.Desc
-	nozzleTargetTemperMetric *prometheus.Desc
-	nozzleTemperMetric       *prometheus.Desc
-	bedTargetTemperMetric    *prometheus.Desc
-	bedTemperMetric          *prometheus.Desc
+	layerNumMetric        *prometheus.Desc
+	totalLayerNumMetric   *prometheus.Desc
+	nozzleTemperMetric    *prometheus.Desc
+	subtaskNameMetric     *prometheus.Desc
+	estTimeMetric         *prometheus.Desc
+	totalTimeMetric       *prometheus.Desc
+	gcodeStateMetric      *prometheus.Desc
+	currentStageMetric    *prometheus.Desc
+	speedProfileMetric    *prometheus.Desc
+	printTypeMetric       *prometheus.Desc
 }
 
 // toFloat converts a string to a float64
@@ -81,7 +136,7 @@ func toFloat(s string) float64 {
 // toBool converts a string to a boolean
 func toBool(s string) bool {
 	b, err := strconv.ParseBool(s)
-	if err == nil {
+	if err != nil {
 		return false
 	}
 	return b
@@ -90,120 +145,60 @@ func toBool(s string) bool {
 // Initializes every descriptor and returns a pointer to the collector
 func newBambulabsCollector() *bambulabsCollector {
 	return &bambulabsCollector{
-		amsHumidityMetric: prometheus.NewDesc("ams_humidity",
-			"humidity of the ams",
-			[]string{"ams_number"}, nil,
-		),
-		amsTempMetric: prometheus.NewDesc("ams_temp",
-			"temperature of the ams",
-			[]string{"ams_number"}, nil,
-		),
-		amsColorMetric: prometheus.NewDesc("ams_tray_color",
-			"ID of the ams with color hex values",
-			[]string{"ams_number", "tray_number", "tray_color", "tray_type"}, nil,
-		),
-		amsBedTempMetric: prometheus.NewDesc("ams_bed_temp",
-			"temperature of the ams bed",
-			[]string{"ams_number", "tray_number"}, nil,
-		),
-		layerNumberMetric: prometheus.NewDesc("layer_number",
-			"layer number of the print head in gcode",
+		layerNumMetric: prometheus.NewDesc("layer_num",
+			"Current layer number",
 			nil, nil,
 		),
-		printErrorMetric: prometheus.NewDesc("print_error",
-			"Print error int",
-			nil, nil,
-		),
-		wifiSignalMetric: prometheus.NewDesc("wifi_signal",
-			"Wifi signal in dBm",
-			nil, nil,
-		),
-		bigFan1SpeedMetric: prometheus.NewDesc("big_fan1_speed",
-			"Big Fan 1 Speed",
-			nil, nil,
-		),
-		bigFan2SpeedMetric: prometheus.NewDesc("big_fan2_speed",
-			"Big Fan 2 Speed",
-			nil, nil,
-		),
-		chamberTemperMetric: prometheus.NewDesc("chamber_temper",
-			"Chamber Temperature of Printer",
-			nil, nil,
-		),
-		coolingFanSpeedMetric: prometheus.NewDesc("cooling_fan_speed",
-			"Cooling Fan Speed",
-			nil, nil,
-		),
-		failReasonMetric: prometheus.NewDesc("fail_reason",
-			"Print Failure Reason",
-			nil, nil,
-		),
-		fanGearMetric: prometheus.NewDesc("fan_gear",
-			"Fan Gear",
-			nil, nil,
-		),
-		mcPercentMetric: prometheus.NewDesc("mc_percent",
-			"Percentage of Progress of print",
-			[]string{"subtask_name"}, nil,
-		),
-		mcPrintErrorCodeMetric: prometheus.NewDesc("mc_print_error_code",
-			"Print Progress Error Code",
-			nil, nil,
-		),
-		mcPrintStageMetric: prometheus.NewDesc("mc_print_stage",
-			"Print Progress Stage",
-			nil, nil,
-		),
-		mcPrintSubStageMetric: prometheus.NewDesc("mc_print_sub_stage",
-			"Print Progress Sub Stage",
-			nil, nil,
-		),
-		mcRemainingTimeMetric: prometheus.NewDesc("mc_remaining_time",
-			"Print Progress Remaining Time in minutes",
-			nil, nil,
-		),
-		nozzleTargetTemperMetric: prometheus.NewDesc("nozzle_target_temper",
-			"Nozzle Target Temperature Metric",
+		totalLayerNumMetric: prometheus.NewDesc("total_layer_num",
+			"Total number of layers",
 			nil, nil,
 		),
 		nozzleTemperMetric: prometheus.NewDesc("nozzle_temper",
-			"Nozzle Temperature Metric",
+			"Nozzle temperature in Celsius",
 			nil, nil,
 		),
-		bedTargetTemperMetric: prometheus.NewDesc("bed_target_temper",
-			"Bed Target Temperature Metric",
+		subtaskNameMetric: prometheus.NewDesc("subtask_name",
+			"Name of the current print job",
+			[]string{"name"}, nil,
+		),
+		estTimeMetric: prometheus.NewDesc("est_time",
+			"Estimated time remaining in minutes",
 			nil, nil,
 		),
-		bedTemperMetric: prometheus.NewDesc("bed_temper",
-			"Bed Temperature Metric",
+		totalTimeMetric: prometheus.NewDesc("total_time",
+			"Total estimated print time in minutes",
 			nil, nil,
+		),
+		gcodeStateMetric: prometheus.NewDesc("gcode_state",
+			"GCode state (RUNNING, IDLE, etc.)",
+			[]string{"state"}, nil,
+		),
+		currentStageMetric: prometheus.NewDesc("current_stage",
+			"Current print stage description",
+			[]string{"stage"}, nil,
+		),
+		speedProfileMetric: prometheus.NewDesc("speed_profile",
+			"Speed profile (silent, standard, sport, ludicrous)",
+			[]string{"profile"}, nil,
+		),
+		printTypeMetric: prometheus.NewDesc("print_type",
+			"Print type (cloud, local, idle, etc.)",
+			[]string{"type"}, nil,
 		),
 	}
 }
 
 func (collector *bambulabsCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- collector.amsHumidityMetric
-	ch <- collector.amsTempMetric
-	ch <- collector.amsColorMetric
-	ch <- collector.amsBedTempMetric
-	ch <- collector.layerNumberMetric
-	ch <- collector.printErrorMetric
-	ch <- collector.wifiSignalMetric
-	ch <- collector.bigFan1SpeedMetric
-	ch <- collector.bigFan2SpeedMetric
-	ch <- collector.chamberTemperMetric
-	ch <- collector.coolingFanSpeedMetric
-	ch <- collector.failReasonMetric
-	ch <- collector.fanGearMetric
-	ch <- collector.mcPercentMetric
-	ch <- collector.mcPrintErrorCodeMetric
-	ch <- collector.mcPrintStageMetric
-	ch <- collector.mcPrintSubStageMetric
-	ch <- collector.mcRemainingTimeMetric
-	ch <- collector.nozzleTargetTemperMetric
+	ch <- collector.layerNumMetric
+	ch <- collector.totalLayerNumMetric
 	ch <- collector.nozzleTemperMetric
-	ch <- collector.bedTargetTemperMetric
-	ch <- collector.bedTemperMetric
+	ch <- collector.subtaskNameMetric
+	ch <- collector.estTimeMetric
+	ch <- collector.totalTimeMetric
+	ch <- collector.gcodeStateMetric
+	ch <- collector.currentStageMetric
+	ch <- collector.speedProfileMetric
+	ch <- collector.printTypeMetric
 }
 
 // StartMQTTClient starts the MQTT Client
@@ -235,96 +230,59 @@ func (collector *bambulabsCollector) StartMQTTClient() {
 		panic(token.Error())
 	}
 
-	log.Printf("Subscribed to LWT %s", mqtt_topic)
+	log.Printf("Subscribed to topic %s", mqtt_topic)
 }
 
-// Collect implements the collect function. It checks to see if data has been received, and
-// if so, sends the metrics out on the channel.
+// Collect implements the collect function for clean data only
 func (collector *bambulabsCollector) Collect(ch chan<- prometheus.Metric) {
 	if !connected {
-		// If we were disconnected, then reconnect the MQTT client. There will be no data,
-		// so return and the next time Collect() is called, hopefully we'll be in better
-		// shape.
+		// If we were disconnected, then reconnect the MQTT client
 		collector.StartMQTTClient()
 		return
 	}
 
-	//Loop through the AMS
-	for x := 0; x < len(data.Print.Ams.Ams); x++ {
+	// Extract clean data fields
+	layerNum := float64(data.Print.ThreeD.LayerNum)
+	totalLayerNum := float64(data.Print.ThreeD.TotalLayerNum)
+	nozzleTemper := data.Print.NozzleTemper
+	subtaskName := data.Print.SubtaskName
+	mcRemainingTime := float64(data.Print.McRemainingTime)
+	mcPercent := data.Print.McPercent
+	gcodeState := data.Print.GcodeState
+	mcPrintSubStage := data.Print.McPrintSubStage
+	spdLvl := data.Print.SpdLvl
+	printType := data.Print.PrintType
 
-		ams_temp := toFloat(data.Print.Ams.Ams[x].Temp)
-		ams_temp_1 := prometheus.MustNewConstMetric(collector.amsTempMetric, prometheus.GaugeValue, ams_temp, strconv.Itoa(x))
-		ch <- ams_temp_1
-
-		humidity := toFloat(data.Print.Ams.Ams[x].HumidityRaw)
-		humidity_1 := prometheus.MustNewConstMetric(collector.amsHumidityMetric, prometheus.GaugeValue, humidity, strconv.Itoa(x))
-		ch <- humidity_1
-
-		// loop through the Trays
-		for i := 0; i < len(data.Print.Ams.Ams[x].Tray); i++ {
-
-			ams_bed_temp := toFloat(data.Print.Ams.Ams[x].Tray[i].BedTemp)
-			ams_bed_temp_1 := prometheus.MustNewConstMetric(collector.amsBedTempMetric, prometheus.GaugeValue, ams_bed_temp, strconv.Itoa(x), strconv.Itoa(i))
-			ch <- ams_bed_temp_1
-
-			ams_tray_color := data.Print.Ams.Ams[x].Tray[i].TrayColor
-			ams_tray_type := data.Print.Ams.Ams[x].Tray[i].TrayType
-			ams_color_1 := prometheus.MustNewConstMetric(collector.amsColorMetric, prometheus.GaugeValue, 1, strconv.Itoa(x), strconv.Itoa(i), ams_tray_color, ams_tray_type)
-			ch <- ams_color_1
-
-		}
+	// Calculate total time from remaining time and percentage
+	// Printer sends total_time: 0, so we must calculate it
+	var totalTime float64
+	if mcRemainingTime > 0 && mcPercent > 0 && mcPercent < 100 {
+		totalTime = (mcRemainingTime * 100) / float64(100-mcPercent)
 	}
 
-	layer_number_1 := prometheus.MustNewConstMetric(collector.layerNumberMetric, prometheus.GaugeValue, float64(data.Print.LayerNum))
-	ch <- layer_number_1
+	// Map current stage ID to description
+	currentStage, ok := CURRENT_STAGE_IDS[mcPrintSubStage]
+	if !ok {
+		currentStage = "unknown"
+	}
 
-	print_error_1 := prometheus.MustNewConstMetric(collector.printErrorMetric, prometheus.GaugeValue, float64(data.Print.PrintError))
-	ch <- print_error_1
+	// Map speed level to profile name
+	speedProfile, ok := SPEED_PROFILE[spdLvl]
+	if !ok {
+		speedProfile = "unknown"
+	}
 
-	wifi_signal_1 := prometheus.MustNewConstMetric(collector.wifiSignalMetric, prometheus.GaugeValue, toFloat(strings.ReplaceAll(data.Print.WifiSignal, "dBm", "")))
-	ch <- wifi_signal_1
-
-	big_fan1_speed_1 := prometheus.MustNewConstMetric(collector.bigFan1SpeedMetric, prometheus.GaugeValue, toFloat(data.Print.BigFan1Speed))
-	ch <- big_fan1_speed_1
-
-	big_fan2_speed_1 := prometheus.MustNewConstMetric(collector.bigFan2SpeedMetric, prometheus.GaugeValue, toFloat(data.Print.BigFan2Speed))
-	ch <- big_fan2_speed_1
-
-	cooling_fan_speed_1 := prometheus.MustNewConstMetric(collector.coolingFanSpeedMetric, prometheus.GaugeValue, toFloat(data.Print.CoolingFanSpeed))
-	ch <- cooling_fan_speed_1
-
-	fail_reason_metric_1 := prometheus.MustNewConstMetric(collector.failReasonMetric, prometheus.GaugeValue, toFloat(data.Print.FailReason))
-	ch <- fail_reason_metric_1
-
-	fan_gear_metric_1 := prometheus.MustNewConstMetric(collector.fanGearMetric, prometheus.GaugeValue, float64(data.Print.FanGear))
-	ch <- fan_gear_metric_1
-
-	mc_percent_1 := prometheus.MustNewConstMetric(collector.mcPercentMetric, prometheus.GaugeValue, float64(data.Print.McPercent), data.Print.SubtaskName)
-	ch <- mc_percent_1
-
-	mc_print_error_code_1 := prometheus.MustNewConstMetric(collector.mcPrintErrorCodeMetric, prometheus.GaugeValue, toFloat(data.Print.McPrintErrorCode))
-	ch <- mc_print_error_code_1
-
-	mc_print_stage_metric_1 := prometheus.MustNewConstMetric(collector.mcPrintStageMetric, prometheus.GaugeValue, toFloat(data.Print.McPrintStage))
-	ch <- mc_print_stage_metric_1
-
-	mc_print_sub_stage_metric_1 := prometheus.MustNewConstMetric(collector.mcPrintSubStageMetric, prometheus.GaugeValue, float64(data.Print.McPrintSubStage))
-	ch <- mc_print_sub_stage_metric_1
-
-	mc_remaining_time_metric_1 := prometheus.MustNewConstMetric(collector.mcRemainingTimeMetric, prometheus.GaugeValue, float64(data.Print.McRemainingTime))
-	ch <- mc_remaining_time_metric_1
-
-	nozzle_target_temper_metric_1 := prometheus.MustNewConstMetric(collector.nozzleTargetTemperMetric, prometheus.GaugeValue, float64(data.Print.NozzleTargetTemper))
-	ch <- nozzle_target_temper_metric_1
-
-	nozzle_temper_metric_1 := prometheus.MustNewConstMetric(collector.nozzleTemperMetric, prometheus.GaugeValue, float64(data.Print.NozzleTemper))
-	ch <- nozzle_temper_metric_1
-
-	bed_target_temper_metric_1 := prometheus.MustNewConstMetric(collector.bedTargetTemperMetric, prometheus.GaugeValue, float64(data.Print.BedTargetTemper))
-	ch <- bed_target_temper_metric_1
-
-	bed_temper_metric_1 := prometheus.MustNewConstMetric(collector.bedTemperMetric, prometheus.GaugeValue, float64(data.Print.BedTemper))
-	ch <- bed_temper_metric_1
+	// Create metrics
+	ch <- prometheus.MustNewConstMetric(collector.layerNumMetric, prometheus.GaugeValue, layerNum)
+	ch <- prometheus.MustNewConstMetric(collector.totalLayerNumMetric, prometheus.GaugeValue, totalLayerNum)
+	ch <- prometheus.MustNewConstMetric(collector.nozzleTemperMetric, prometheus.GaugeValue, nozzleTemper)
+	ch <- prometheus.MustNewConstMetric(collector.subtaskNameMetric, prometheus.GaugeValue, 1, subtaskName)
+	ch <- prometheus.MustNewConstMetric(collector.estTimeMetric, prometheus.GaugeValue, mcRemainingTime)
+	ch <- prometheus.MustNewConstMetric(collector.totalTimeMetric, prometheus.GaugeValue, totalTime)
+	ch <- prometheus.MustNewConstMetric(collector.gcodeStateMetric, prometheus.GaugeValue, 1, gcodeState)
+	ch <- prometheus.MustNewConstMetric(collector.currentStageMetric, prometheus.GaugeValue, 1, currentStage)
+	ch <- prometheus.MustNewConstMetric(collector.speedProfileMetric, prometheus.GaugeValue, 1, speedProfile)
+	ch <- prometheus.MustNewConstMetric(collector.printTypeMetric, prometheus.GaugeValue, 1, printType)
 }
 
 var messagePubHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
@@ -366,7 +324,7 @@ var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err
 }
 
 func main() {
-	log.Printf("Starting Exporter: %s", time.Now().String())
+	log.Printf("Starting Slim Exporter (Clean Data Only): %s", time.Now().String())
 
 	if _, err := os.Stat(".env"); os.IsNotExist(err) {
 		log.Printf(".env file not found, hope you populated the environment variables")
@@ -393,7 +351,7 @@ func main() {
 		mqtt.ERROR = log.New(os.Stdout, "[ERROR] ", 0)
 	}
 
-	log.Printf("Registering collector")
+	log.Printf("Registering slim collector (13 clean data metrics only)")
 	bambulabs := newBambulabsCollector()
 	prometheus.MustRegister(bambulabs)
 	bambulabs.StartMQTTClient()
@@ -408,12 +366,27 @@ func main() {
 
 const body = `<html>
 				<head>
-					<title>BambuLabs Exporter Metrics</title>
+					<title>BambuLabs Slim Exporter - Clean Data Only</title>
 				</head>
 				<body>
-					<h1>BambuLabs Exporter</h1>
+					<h1>BambuLabs Slim Exporter</h1>
+					<p>Exporting 13 clean data metrics only</p>
 					<p><a href='` + "/metrics" + `'>metrics</a></p>
 					<p><a href='` + "/healthz" + `'>healthz</a></p>
+					<hr>
+					<p>Clean Data Metrics:</p>
+					<ul>
+						<li>layer_num - Current layer number</li>
+						<li>total_layer_num - Total layers</li>
+						<li>nozzle_temper - Nozzle temperature</li>
+						<li>subtask_name - Print job name</li>
+						<li>est_time - Time remaining (minutes)</li>
+						<li>total_time - Total time (minutes)</li>
+						<li>gcode_state - Print state</li>
+						<li>current_stage - Current stage</li>
+						<li>speed_profile - Speed setting</li>
+						<li>print_type - Print type</li>
+					</ul>
 				</body>
 			  </html>`
 

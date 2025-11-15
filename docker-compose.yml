@@ -10,7 +10,10 @@ networks:
 
 services:
   exporter:
-    image: aetrius/bambulabs-exporter:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bambulabs-exporter-slim:latest
     container_name: bambulabs-exporter
     env_file: .env
     ports:
